@@ -1,0 +1,12 @@
+name: pynn-minimal
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy
+  - scipy
+  - pip
+  - brian2
+  - pip:
+      - PyNN
+
