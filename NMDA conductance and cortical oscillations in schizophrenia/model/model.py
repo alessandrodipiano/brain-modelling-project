@@ -234,10 +234,16 @@ def network(alpha_EI, dt, rng_seed=0,gNI_mS_cm2=0.008):
     rate_E_ss = np.sum(spE.t >= t0) / ((T - t0)/second) / N_E
     rate_I_ss = np.sum(spI.t >= t0) / ((T - t0)/second) / N_I
     vmax0_mV = float(np.max(vE.v[0] / mV))
+    spE_t = np.asarray(spE.t / second)   # seconds
+    spI_t = np.asarray(spI.t / second)
 
-    return dict(alpha_EI=alpha_EI, dt=float(dt/ms),
-                rate_E_ss=float(rate_E_ss), rate_I_ss=float(rate_I_ss),
-                I_app_E=float(E.I_app[0] / (amp/meter**2)),
-                I_app_I=float(I.I_app[0] / (amp/meter**2)),
-                vmax0_mV=vmax0_mV)
+    return dict(
+        alpha_EI=alpha_EI, dt=float(dt/ms),
+        rate_E_ss=float(rate_E_ss), rate_I_ss=float(rate_I_ss),
+        I_app_E=float(E.I_app[0] / (amp/meter**2)),
+        I_app_I=float(I.I_app[0] / (amp/meter**2)),
+        vmax0_mV=vmax0_mV,
+        spE_t=spE_t, spI_t=spI_t
+)
+
     
