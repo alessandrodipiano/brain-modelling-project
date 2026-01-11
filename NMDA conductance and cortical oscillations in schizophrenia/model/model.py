@@ -1,249 +1,227 @@
 import numpy as np
 from brian2 import *
 
-
-# Unit conversions (paper uses per cm^2; Brian2 wants SI per m^2)
-
-# 1 cm^2 = 1e-4 m^2
-# so X / cm^2  ==  X * 1e4 / m^2
-#
-# 1 uA/cm^2 = 1e-6 A * 1e4 / m^2 = 1e-2 A/m^2
-# 1 mS/cm^2 = 1e-3 S * 1e4 / m^2 = 10 S/m^2
-# 1 uF/cm^2 = 1e-6 F * 1e4 / m^2 = 1e-2 F/m^2
 UA_PER_CM2_TO_SI = 1e-2 * amp / meter**2
 MS_PER_CM2_TO_SI = 10.0 * siemens / meter**2
 UF_PER_CM2_TO_SI = 1e-2 * farad / meter**2
 
-
-# Network size + connectivity
 N_E, N_I = 200, 50
 P_EE, P_EI, P_IE, P_II = 0.10, 0.40, 0.50, 0.60
 
-# Capacitance
-C_E = 1.0 * UF_PER_CM2_TO_SI
-C_I = 1.0 * UF_PER_CM2_TO_SI
-
-# Leak
-EL  = -65.0 * mV
-gL_E = 0.05 * MS_PER_CM2_TO_SI
-gL_I = 0.50 * MS_PER_CM2_TO_SI
-
-# Thresholds / reset
+EL   = -65.0 * mV
 VT_E = -45.0 * mV
 VT_I = -30.0 * mV
 VR   = -52.0 * mV
-V_peak = 20 * mV
+V_peak = 20.0 * mV
 
+C_E  = 1.0 * UF_PER_CM2_TO_SI
+C_I  = 1.0 * UF_PER_CM2_TO_SI
+gL_E = 0.05 * MS_PER_CM2_TO_SI
+gL_I = 0.50 * MS_PER_CM2_TO_SI
 
-# Adaptation (E only)
-a = 0.01 / ms          # paper form uses fixed decay
-d = 0.2 * UA_PER_CM2_TO_SI
+V_K = -75.0 * mV
+a_adapt = 0.01 / ms
 
-# Synaptic time constants
-tau_nmda = 80.0 * ms
-tau_ampa_EE = 3.0 * ms
-tau_ampa_EI = 1.0 * ms
-tau_gaba = 2.0 * ms
+# IMPORTANT: z must have units of conductance density (so that z*(v - V_K) is a current density)
+# The paper increments z by d=0.2 (Table 1) but does not state units explicitly; consistency with Eq. (2)
+# implies z is a conductance-like term. Here we interpret d as 0.2 mS/cm^2.
+d_adapt = 0.2 * MS_PER_CM2_TO_SI
 
-# Reversal potentials
-E_AMPA = 0.0 * mV
-E_NMDA = 0.0 * mV
-E_GABA = -70.0 * mV
+tau_n  = 80.0 * ms
+tau_e  = 3.0 * ms
+tau_ei = 1.0 * ms
+tau_i  = 2.0 * ms
 
-# Synaptic conductances (Table 2)
+Vex = 0.0 * mV
+Vin = -70.0 * mV
 
-gNE = 0.008 * MS_PER_CM2_TO_SI
-gNI = 0.008 * MS_PER_CM2_TO_SI
-gEE = 0.10  * MS_PER_CM2_TO_SI
-gEI = 0.08  * MS_PER_CM2_TO_SI
-gIE = 0.25  * MS_PER_CM2_TO_SI
-gII = 0.10  * MS_PER_CM2_TO_SI
-
-# Magnesium concentration
 Mg = 1.0
 
-# External tonic drive
-I_app_E = 4.0 * UA_PER_CM2_TO_SI
-I_app_I = 0.0 * UA_PER_CM2_TO_SI
-
-eqs_E = """
-# Intrinsic quadratic term (as in the paper's QIF-like formulation)
-I_intrinsic = gL * (v - EL) * (v - VT) / (VT - EL) : amp/meter**2
-I_adapt = z : amp/meter**2
-
-# NMDA magnesium block
-B = 1.0 / (1.0 + (Mg * exp(-0.062 * (v/mV)) / 3.57)) : 1
-
-# Synaptic currents: E receives from E (AMPA+NMDA) and from I (GABA)
-I_ampa = gEE * sA_EE * (v - E_AMPA) : amp/meter**2
-I_nmda = gNE * sN_EE * B * (v - E_NMDA) : amp/meter**2
-I_gaba = gIE * sG_IE * (v - E_GABA) : amp/meter**2
-I_syn = I_ampa + I_nmda + I_gaba : amp/meter**2
-
-# Membrane
-dv/dt = (I_app + I_intrinsic - I_adapt - I_syn) / C : volt
-
-# Adaptation
-dz/dt = -a * z : amp/meter**2
-
-# Synaptic gate decays
-dsA_EE/dt = -sA_EE / tau_ampa_EE : 1
-dsN_EE/dt = -sN_EE / tau_nmda : 1
-dsG_IE/dt = -sG_IE / tau_gaba : 1
-
-# Per-neuron parameters / inputs
-I_app : amp/meter**2
-C : farad/meter**2
-gL : siemens/meter**2
-VT : volt
-"""
-
-eqs_I = """
-I_intrinsic = gL * (v - EL) * (v - VT) / (VT - EL) : amp/meter**2
-I_adapt = 0*amp/meter**2 : amp/meter**2  # no adaptation current in I
-
-B = 1.0 / (1.0 + (Mg * exp(-0.062 * (v/mV)) / 3.57)) : 1
-
-# Synaptic currents: I receives from E (AMPA+NMDA) and from I (GABA)
-I_ampa = gEI * sA_EI * (v - E_AMPA) : amp/meter**2
-I_nmda = gNI * sN_EI * B * (v - E_NMDA) : amp/meter**2
-I_gaba = gII * sG_II * (v - E_GABA) : amp/meter**2
-I_syn = I_ampa + I_nmda + I_gaba : amp/meter**2
-
-dv/dt = (I_app + I_intrinsic - I_adapt - I_syn) / C : volt
-
-# Gate decays
-dsA_EI/dt = -sA_EI / tau_ampa_EI : 1
-dsN_EI/dt = -sN_EI / tau_nmda : 1
-dsG_II/dt = -sG_II / tau_gaba : 1
-
-I_app : amp/meter**2
-C : farad/meter**2
-gL : siemens/meter**2
-VT : volt
-"""
+sigma_E = 1.0 * UA_PER_CM2_TO_SI * sqrt(ms)
+sigma_I = 0.8 * UA_PER_CM2_TO_SI * sqrt(ms)
 
 
-
-
-def network(alpha_EI, dt, rng_seed=0,gNI_mS_cm2=0.008):
-    global gNI  # because eqs_I refers to the Python symbol gNI
+def network(
+    dt_ms=0.05,
+    T_ms=10000.0,
+    rng_seed=0,
+    gNI_mS_cm2=0.008,
+    gEI_mS_cm2=0.08,
+    gNE_mS_cm2=0.008,
+    gEE_mS_cm2=0.10,
+    gIE_mS_cm2=0.25,
+    gII_mS_cm2=0.10,
+    Iapp_E_uAcm2=4.0,
+    Iapp_I_uAcm2=0.0,
+    alpha_n_per_ms=0.5,   # Eq. 9 parameter a_n (not given numerically in main text)
+):
     start_scope()
     np.random.seed(rng_seed)
-    seed(rng_seed) 
-    
-    gNI = gNI_mS_cm2 * MS_PER_CM2_TO_SI
+    seed(rng_seed)
+    defaultclock.dt = dt_ms * ms
 
-    defaultclock.dt = dt * ms
-    method = "euler"
-    
+    # Convert knobs to SI
+    gNI_loc = gNI_mS_cm2 * MS_PER_CM2_TO_SI
+    gEI_loc = gEI_mS_cm2 * MS_PER_CM2_TO_SI
+    gNE_loc = gNE_mS_cm2 * MS_PER_CM2_TO_SI
+    gEE_loc = gEE_mS_cm2 * MS_PER_CM2_TO_SI
+    gIE_loc = gIE_mS_cm2 * MS_PER_CM2_TO_SI
+    gII_loc = gII_mS_cm2 * MS_PER_CM2_TO_SI
 
-    E = NeuronGroup(
-        N_E, eqs_E,
-        threshold="v >= V_peak",
-        reset="v = VR; z += d",
-        method=method,
-        name="E"
+    IappE_loc = Iapp_E_uAcm2 * UA_PER_CM2_TO_SI
+    IappI_loc = Iapp_I_uAcm2 * UA_PER_CM2_TO_SI
+
+    alpha_n = alpha_n_per_ms / ms
+
+    # Put all external symbols in a namespace for clarity/robustness
+    ns = dict(
+        # conductances / drives
+        gNI_loc=gNI_loc, gEI_loc=gEI_loc, gNE_loc=gNE_loc,
+        gEE_loc=gEE_loc, gIE_loc=gIE_loc, gII_loc=gII_loc,
+        IappE_loc=IappE_loc, IappI_loc=IappI_loc,
+        # constants
+        EL=EL, VT_E=VT_E, VT_I=VT_I, VR=VR, V_peak=V_peak,
+        Vex=Vex, Vin=Vin, V_K=V_K, Mg=Mg,
+        C_E=C_E, C_I=C_I, gL_E=gL_E, gL_I=gL_I,
+        a_adapt=a_adapt, d_adapt=d_adapt,
+        sigma_E=sigma_E, sigma_I=sigma_I,
+        tau_n=tau_n, tau_e=tau_e, tau_ei=tau_ei, tau_i=tau_i,
+        alpha_n=alpha_n
     )
 
-    I = NeuronGroup(
-        N_I, eqs_I,
-        threshold="v >= V_peak",
-        reset="v = VR",          # no adaptation jump in I
-        method=method,
-        name="I"
+    eqs_E = """
+    I_intrinsic = gL_E * (v - EL) * (v - VT_E) / (VT_E - EL) : amp/meter**2
+
+    B = 1.0 / (1.0 + (Mg * exp(-0.062 * (v/mV)) / 3.57)) : 1
+
+    I_AMPA = gEE_loc * se_EE * (v - Vex) : amp/meter**2
+    I_NMDA = gNE_loc * sn_EE * B * (v - Vex) : amp/meter**2
+    I_GABA = gIE_loc * si_IE * (v - Vin) : amp/meter**2
+    I_syn  = I_AMPA + I_NMDA + I_GABA : amp/meter**2
+
+    I_adapt = z * (v - V_K) : amp/meter**2
+
+    dv/dt = (IappE_loc + I_intrinsic - I_adapt - I_syn + sigma_E*xi) / C_E : volt
+
+    dz/dt = -a_adapt * z : siemens/meter**2
+
+    se_EE : 1
+    sn_EE : 1
+    si_IE : 1
+    """
+
+    eqs_I = """
+    I_intrinsic = gL_I * (v - EL) * (v - VT_I) / (VT_I - EL) : amp/meter**2
+
+    B = 1.0 / (1.0 + (Mg * exp(-0.062 * (v/mV)) / 3.57)) : 1
+
+    I_AMPA = gEI_loc * se_EI * (v - Vex) : amp/meter**2
+    I_NMDA = gNI_loc * sn_EI * B * (v - Vex) : amp/meter**2
+    I_GABA = gII_loc * si_II * (v - Vin) : amp/meter**2
+    I_syn  = I_AMPA + I_NMDA + I_GABA : amp/meter**2
+
+    dv/dt = (IappI_loc + I_intrinsic - I_syn + sigma_I*xi) / C_I : volt
+
+    se_EI : 1
+    sn_EI : 1
+    si_II : 1
+    """
+
+    E = NeuronGroup(N_E, eqs_E, threshold="v >= V_peak",
+                    reset="v = VR; z += d_adapt",
+                    method="euler", namespace=ns, name="E")
+
+    I = NeuronGroup(N_I, eqs_I, threshold="v >= V_peak",
+                    reset="v = VR",
+                    method="euler", namespace=ns, name="I")
+
+    E.v = EL + 1*mV * randn(N_E)
+    I.v = EL + 1*mV * randn(N_I)
+    E.z = 0 * siemens/meter**2
+
+    # --- Synapses ---
+    # Use tau symbols, not inlined quantities (prevents "3. ms" formatting bug)
+
+    S_EE = Synapses(
+        E, E,
+        model="""
+        dse/dt = -se/tau_e : 1 (clock-driven)
+        dsn/dt = alpha_n*se*(1-sn) - sn/tau_n : 1 (clock-driven)
+        se_EE_post = se : 1 (summed)
+        sn_EE_post = sn : 1 (summed)
+        """,
+        on_pre="se += 1.0",
+        namespace=ns,
+        name="S_EE"
     )
+    S_EE.connect(condition="i != j", p=P_EE)
+    S_EE.delay = 0.5*ms
 
-    # Set per-population intrinsic parameters
-    E.C = C_E
-    E.gL = gL_E
-    E.VT = VT_E
-    E.I_app = I_app_E
-
-    I.C = C_I
-    I.gL = gL_I
-    I.VT = VT_I
-    I.I_app = I_app_I
-
-    # Initial conditions
-    E.v = EL + 1*mV*randn(N_E)
-    E.z = 0.0 * amp/meter**2
-    E.sA_EE = 0.0
-    E.sN_EE = 0.0
-    E.sG_IE = 0.0
-
-    I.v = EL + 1*mV*randn(N_I)
-    I.sA_EI = 0.0
-    I.sN_EI = 0.0
-    I.sG_II = 0.0
-
-    # Weights (dimensionless gate jumps)
-    K_EE = P_EE * (N_E - 1)
-    K_EI = P_EI * N_E
-    K_IE = P_IE * N_I
-    K_II = P_II * (N_I - 1)
-
-    wA_EE = 1.0 / K_EE
-    wN_EE = 1.0 / K_EE
-    wA_EI = 1.0 / K_EI
-    wN_EI = 1.0 / K_EI
-    wG_IE = 1.0 / K_IE
-    wG_II = 1.0 / K_II
-
-    # E -> E (paired AMPA+NMDA on same edges)
-    S_EE = Synapses(E, E, model="wA:1\nwN:1", on_pre="sA_EE_post += wA; sN_EE_post += wN")
-    S_EE.connect(condition='i != j', p=P_EE)
-    S_EE.wA = wA_EE
-    S_EE.wN = wN_EE
-
-    # E -> I
-    S_EI = Synapses(E, I, model="wA:1\nwN:1", on_pre="sA_EI_post += wA; sN_EI_post += wN")
+    S_EI = Synapses(
+        E, I,
+        model="""
+        dse/dt = -se/tau_ei : 1 (clock-driven)
+        dsn/dt = alpha_n*se*(1-sn) - sn/tau_n : 1 (clock-driven)
+        se_EI_post = se : 1 (summed)
+        sn_EI_post = sn : 1 (summed)
+        """,
+        on_pre="se += 1.0",
+        namespace=ns,
+        name="S_EI"
+    )
     S_EI.connect(p=P_EI)
+    S_EI.delay = 0.5*ms
 
-
-    S_EI.wA = alpha_EI
-    S_EI.wN = alpha_EI
-
-    # I -> E
-    S_IE = Synapses(I, E, model="wG:1", on_pre="sG_IE_post += wG")
+    S_IE = Synapses(
+        I, E,
+        model="""
+        dsi/dt = -si/tau_i : 1 (clock-driven)
+        si_IE_post = si : 1 (summed)
+        """,
+        on_pre="si += 1.0",
+        namespace=ns,
+        name="S_IE"
+    )
     S_IE.connect(p=P_IE)
-    S_IE.wG = wG_IE
+    S_IE.delay = 0.5*ms
 
-    # I -> I
-    S_II = Synapses(I, I, model="wG:1", on_pre="sG_II_post += wG")
-    S_II.connect(condition='i != j', p=P_II)
-    S_II.wG = wG_II
+    S_II = Synapses(
+        I, I,
+        model="""
+        dsi/dt = -si/tau_i : 1 (clock-driven)
+        si_II_post = si : 1 (summed)
+        """,
+        on_pre="si += 1.0",
+        namespace=ns,
+        name="S_II"
+    )
+    S_II.connect(condition="i != j", p=P_II)
+    S_II.delay = 0.5*ms
 
-    for S in (S_EE, S_EI, S_IE, S_II):
-        S.delay = 0.5 * ms
-
-
-    # ----------------------------
-    # Recording
-    # ----------------------------
+    # --- Monitors ---
     spE = SpikeMonitor(E)
     spI = SpikeMonitor(I)
+    vE  = StateMonitor(E, "v", record=True)
 
-    vE = StateMonitor(E, "v", record=range(5))
-    vI = StateMonitor(I, "v", record=range(5))
+    run(T_ms * ms)
 
-    T = 2000*ms
-    run(T)
+    lfp = np.mean(vE.v / mV, axis=0)
+    t_lfp = np.asarray(vE.t / second)
 
-    t0 = 200*ms
-    rate_E_ss = np.sum(spE.t >= t0) / ((T - t0)/second) / N_E
-    rate_I_ss = np.sum(spI.t >= t0) / ((T - t0)/second) / N_I
-    vmax0_mV = float(np.max(vE.v[0] / mV))
-    spE_t = np.asarray(spE.t / second)   # seconds
-    spI_t = np.asarray(spI.t / second)
+    rate_E = (spE.num_spikes / N_E) / ((T_ms*ms)/second)
+    rate_I = (spI.num_spikes / N_I) / ((T_ms*ms)/second)
 
     return dict(
-        alpha_EI=alpha_EI, dt=float(dt/ms),
-        rate_E_ss=float(rate_E_ss), rate_I_ss=float(rate_I_ss),
-        I_app_E=float(E.I_app[0] / (amp/meter**2)),
-        I_app_I=float(I.I_app[0] / (amp/meter**2)),
-        vmax0_mV=vmax0_mV,
-        spE_t=spE_t, spI_t=spI_t
-)
+        lfp=lfp,
+        t_lfp=t_lfp,
+        spE_t=np.asarray(spE.t/second), spE_i=np.asarray(spE.i),
+        spI_t=np.asarray(spI.t/second), spI_i=np.asarray(spI.i),
+        rate_E=float(rate_E), rate_I=float(rate_I),
+        params=dict(alpha_n_per_ms=float(alpha_n_per_ms),
+                    gNI_mS_cm2=float(gNI_mS_cm2),
+                    dt_ms=float(dt_ms), T_ms=float(T_ms))
+    )
+
+
 
     
