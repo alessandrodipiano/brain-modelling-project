@@ -201,12 +201,19 @@ def network(
     # --- Monitors ---
     spE = SpikeMonitor(E)
     spI = SpikeMonitor(I)
-    vE  = StateMonitor(E, "v", record=True)
+        # --- LFP recording without storing all voltages ---
+    lfp_list = []
+    t_list   = []
+
+    @network_operation(dt=defaultclock.dt)
+    def record_lfp():
+        lfp_list.append(float(np.mean(E.v / mV)))
+        t_list.append(float(defaultclock.t / second))
 
     run(T_ms * ms)
 
-    lfp = np.mean(vE.v / mV, axis=0)
-    t_lfp = np.asarray(vE.t / second)
+    lfp   = np.asarray(lfp_list)
+    t_lfp = np.asarray(t_list)
 
     rate_E = (spE.num_spikes / N_E) / ((T_ms*ms)/second)
     rate_I = (spI.num_spikes / N_I) / ((T_ms*ms)/second)
