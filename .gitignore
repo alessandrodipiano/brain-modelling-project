@@ -7,3 +7,14 @@ __pycache__/
 
 .env
 *.yml
+
+# Python bytecode
+*.pyc
+*.pyo
+*.pyd
+
+# Bytecode cache directories
+__pycache__/
+
+# (Optional) Ignore all Python cache files anywhere
+**/__pycache__/
