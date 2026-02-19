@@ -140,7 +140,7 @@ def network(
     E.z = 0 * siemens/meter**2
 
     # --- Synapses ---
-    # Use tau symbols, not inlined quantities (prevents "3. ms" formatting bug)
+
 
     S_EE = Synapses(
         E, E,
