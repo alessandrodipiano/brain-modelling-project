@@ -7,8 +7,6 @@ from scipy.ndimage import convolve1d
 # Spectral analysis utilities
 # ----------------------------
 
-
-
 def gamma_metrics_from_lfp_paperwording(
     lfp, dt_ms, f_lo=20.0, f_hi=80.0, half_width_hz=3.0,
     bin_s=1.0, window="hann", detrend="mean", summary="mean",
