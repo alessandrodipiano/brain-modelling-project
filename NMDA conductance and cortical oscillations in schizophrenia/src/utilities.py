@@ -7,7 +7,7 @@ from scipy.ndimage import convolve1d
 # Spectral analysis utilities
 # ----------------------------
 
-def gamma_metrics_from_lfp_paperwording(
+def gamma_metrics_from_lfp(
     lfp, dt_ms, f_lo=20.0, f_hi=80.0, half_width_hz=3.0,
     bin_s=1.0, window="hann", detrend="mean", summary="mean",
     return_diagnostics=False, psd_normalize=False, conv_mode="reflect"
@@ -123,7 +123,7 @@ def run_one_point(gg, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms):
     lfp = res["lfp"]
     dt = res["params"]["dt_ms"]
 
-    f0, P0 = gamma_metrics_from_lfp_paperwording(
+    f0, P0 = gamma_metrics_from_lfp(
         lfp,
         dt,
         f_lo=20.0,
