@@ -189,7 +189,16 @@ def network(mu1, mu2, condition=None, ):
     SME1 = SpikeMonitor(popE1, record=True)
     SME2 = SpikeMonitor(popE2, record=True)
 
+
+    # Record population activity
+    R1 = PopulationRateMonitor(popE1)
+    R2 = PopulationRateMonitor(popE2)
+
+   # Record input
+    E1 = StateMonitor(stiminputE1, 'rates', record=0, dt=1*ms)
+    E2 = StateMonitor(stiminputE2, 'rates', record=0, dt=1*ms)
+
     # Run the simulation
     run(runtime, report=None, profile=False)
 
-    return SME1, SME2
+    return SME1, SME2, R1, R2, E1, E2

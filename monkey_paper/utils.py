@@ -55,8 +55,8 @@ def create_input(n):
             trial_data[posN] = hN 
             trial_data[posB] = hB  
 
-            trial_data[2] = posN # stores info about which sample is narrow
-            trial_data[3] = int(np.mean(hN) > np.mean(hB)) # 1 if narrow correct
+            trial_data[2] = posN # index of the narrow sample
+            trial_data[3] = int(np.mean(trial_data[1]) > np.mean(trial_data[0])) # index of the correct choice
 
             #strength of evidence is defined as difference in means of the correct and incorrect choice 
             trial_data[4] = np.abs(np.mean(hN) - np.mean(hB))
