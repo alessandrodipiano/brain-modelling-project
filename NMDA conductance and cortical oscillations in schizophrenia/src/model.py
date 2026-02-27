@@ -1,6 +1,43 @@
 import numpy as np
 from brian2 import *
 
+'''
+conductance-based neural network model simulating a cortical microcircuit with excitatory and inhibitory populations
+
+Network Architecture:
+-Two populations: 200 excitatory (E) and 50 inhibitory (I) neurons, wired with sparse random connectivity. 
+-E:I ratio (4:1). 
+-Connections are probabilistic — E→E at 10%, I→E at 50%, E→I at 40%, I→I at 60%.
+
+Neuron Model:
+-Both populations use a quadratic integrate-and-fire (QIF) variant (Izhikevich-style)
+
+spike-triggered adaptation current of E cells:
+-z decays exponentially between spikes and jumps up by d at each spike. 
+
+
+Noise:
+-Each neuron receives white noise current 
+-E and I cells have slightly different noise amplitudes (1.0 vs 0.8 µA/cm²·√ms).
+
+
+
+
+the network is defined in the function `network()`, which takes several parameters to control the simulation, including:
+-simulation time (T_ms)
+-time step (dt_ms)
+-random seed (rng_seed)
+-conductance parameters for synaptic connections (gNI_mS_cm2, gEI_mS_cm2, gNE_mS_cm2, gEE_mS_cm2, gIE_mS_cm2, gII_mS_cm2)
+-applied current densities to E and I populations (Iapp_E_uAcm2, Iapp_I_uAcm2)
+-parameter alpha_n_per_ms controlling NMDA synapse dynamics (not given numerically in the main text, default 0.5/ms)
+
+
+'''
+
+
+
+
+
 UA_PER_CM2_TO_SI = 1e-2 * amp / meter**2
 MS_PER_CM2_TO_SI = 10.0 * siemens / meter**2
 UF_PER_CM2_TO_SI = 1e-2 * farad / meter**2
@@ -23,7 +60,7 @@ V_K = -75.0 * mV
 a_adapt = 0.01 / ms
 
 # IMPORTANT: z must have units of conductance density (so that z*(v - V_K) is a current density)
-# The paper increments z by d=0.2 (Table 1) but does not state units explicitly; consistency with Eq. (2)
+# The paper increments z by d=0.2 (Table 1) but does not state units explicitly; 
 # implies z is a conductance-like term. Here we interpret d as 0.2 mS/cm^2.
 d_adapt = 0.2 * MS_PER_CM2_TO_SI
 
@@ -73,7 +110,6 @@ def network(
 
     alpha_n = alpha_n_per_ms / ms
 
-    # Put all external symbols in a namespace for clarity/robustness
     ns = dict(
         # conductances / drives
         gNI_loc=gNI_loc, gEI_loc=gEI_loc, gNE_loc=gNE_loc,

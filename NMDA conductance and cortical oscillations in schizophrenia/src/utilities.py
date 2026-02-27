@@ -106,16 +106,16 @@ def gamma_metrics_from_lfp(
 # ----------------------------
 # Parallel grid evaluation
 # ----------------------------
-def run_one_point(gg, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms):
+def run_one_point_gNI(g, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms):
     """
     One simulation + gamma metrics.
-    Returns (gg, IappI, f0, P0, lfp).
+    Returns (g, IappI, f0, P0, lfp).
     """
     res = network(
         dt_ms=dt_ms,
         T_ms=T_ms,
         rng_seed=rng_seed,
-        gNI_mS_cm2=float(gg),
+        gNI_mS_cm2=float(g),
         Iapp_I_uAcm2=float(IappI),
         alpha_n_per_ms=alpha_n_per_ms
     )
@@ -137,7 +137,7 @@ def run_one_point(gg, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms):
         conv_mode="nearest"
     )
 
-    return float(gg), float(IappI), f0, P0, lfp
+    return float(g), float(IappI), f0, P0, lfp
 
 
 
