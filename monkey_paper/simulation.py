@@ -52,7 +52,7 @@ gEIA = 0.04 * nS / NE * 1600  # excitatory -> inhibitory neurons (AMPA)
 
 #--- key tested parameters; here we consider the lowered E/I option
 # ! a reduction of 1.75% w.r.t the original value of gEEN
-gEEN = 0.165 * nS / NE * 1600 * 0.9825  # excitatory -> excitatory neurons (NMDA)
+gEEN = 0.165 * nS / NE * 1600  # excitatory -> excitatory neurons (NMDA)
 gEIN = 0.13 * nS / NE * 1600  # excitatory -> inhibitory neurons (NMDA)
 #---
 gIE = 1.3 * nS / NI * 400  # inhibitory -> excitatory neurons (GABA)
@@ -104,101 +104,106 @@ eqsI = """
 """
 
 def network(mu1, mu2, condition=None, ): 
-    # Neuron populations
-    popE = NeuronGroup(NE, model=eqsE, threshold='V > Vt', reset='V = Vr', refractory=refE, method='euler', name='popE')
-    popI = NeuronGroup(NI, model=eqsI, threshold='V > Vt', reset='V = Vr', refractory=refI, method='euler', name='popI')
-    popE1 = popE[:subN]
-    popE2 = popE[subN:2 * subN]
-    popE3 = popE[2 * subN:]
-    popE1.label = 0
-    popE2.label = 1
-    popE3.label = 2
+   if condition == 'lowEI': c = 0.9825
+   else: c = 1
+   global gEEN
+   gEEN *= c
 
-    # Recurrent excitatory -> excitatory connections mediated by AMPA receptors
-    C_EE_AMPA = Synapses(popE, popE, 'w : siemens', on_pre='s_AMPA += w', delay=0.5 * ms, method='euler', name='C_EE_AMPA')
-    C_EE_AMPA.connect()
-    C_EE_AMPA.w[:] = gEEA
-    C_EE_AMPA.w["label_pre == label_post and label_pre < 2"] = gEEA*Jp
-    C_EE_AMPA.w["label_pre != label_post and label_post < 2"] = gEEA*Jm
+   # Neuron populations
+   popE = NeuronGroup(NE, model=eqsE, threshold='V > Vt', reset='V = Vr', refractory=refE,method='euler', name='popE')
+   popI = NeuronGroup(NI, model=eqsI, threshold='V > Vt', reset='V = Vr', refractory=refI, method='euler', name='popI')
+   popE1 = popE[:subN]
+   popE2 = popE[subN:2 * subN]
+   popE3 = popE[2 * subN:]
+   popE1.label = 0
+   popE2.label = 1
+   popE3.label = 2
 
-    # Recurrent excitatory -> inhibitory connections mediated by AMPA receptors
-    C_EI_AMPA = Synapses(popE, popI, on_pre='s_AMPA += gEIA', delay=0.5 * ms, method='euler', name='C_EI_AMPA')
-    C_EI_AMPA.connect()
+   # Recurrent excitatory -> excitatory connections mediated by AMPA receptors
+   C_EE_AMPA = Synapses(popE, popE, 'w : siemens', on_pre='s_AMPA += w', delay=0.5 * ms, method='euler', name='C_EE_AMPA')
+   C_EE_AMPA.connect()
+   C_EE_AMPA.w[:] = gEEA
+   C_EE_AMPA.w["label_pre == label_post and label_pre < 2"] = gEEA*Jp
+   C_EE_AMPA.w["label_pre != label_post and label_post < 2"] = gEEA*Jm
 
-    # Recurrent excitatory -> excitatory connections mediated by NMDA receptors
-    C_EE_NMDA = Synapses(popE, popE, on_pre='x_pre += 1', delay=0.5 * ms, method='euler', name='C_EE_NMDA')
-    C_EE_NMDA.connect(j='i')
+   # Recurrent excitatory -> inhibitory connections mediated by AMPA receptors
+   C_EI_AMPA = Synapses(popE, popI, on_pre='s_AMPA += gEIA', delay=0.5 * ms, method='euler', name='C_EI_AMPA')
+   C_EI_AMPA.connect()
 
-    # Dummy population to store the summed activity of the three populations
-    NMDA_sum_group = NeuronGroup(3, 's : 1', name='NMDA_sum_group')
+   # Recurrent excitatory -> excitatory connections mediated by NMDA receptors
+   C_EE_NMDA = Synapses(popE, popE, on_pre='x_pre += 1', delay=0.5 * ms, method='euler', name='C_EE_NMDA')
+   C_EE_NMDA.connect(j='i')
 
-    # Sum the activity according to the subpopulation labels
-    NMDA_sum = Synapses(popE, NMDA_sum_group, 's_post = s_NMDA_pre : 1 (summed)', name='NMDA_sum')
-    NMDA_sum.connect(j='label_pre')
+   # Dummy population to store the summed activity of the three populations
+   NMDA_sum_group = NeuronGroup(3, 's : 1', name='NMDA_sum_group')
 
-    # Propagate the summed activity to the NMDA synapses
-    NMDA_set_total_E = Synapses(NMDA_sum_group, popE,
+   # Sum the activity according to the subpopulation labels
+   NMDA_sum = Synapses(popE, NMDA_sum_group, 's_post = s_NMDA_pre : 1 (summed)', name='NMDA_sum')
+   NMDA_sum.connect(j='label_pre')
+
+   # Propagate the summed activity to the NMDA synapses
+   NMDA_set_total_E = Synapses(NMDA_sum_group, popE,
                                 '''w : 1 (constant)
                                 s_NMDA_tot_post = w*s_pre : 1 (summed)''', name='NMDA_set_total_E')
-    NMDA_set_total_E.connect()
-    NMDA_set_total_E.w = 1
-    NMDA_set_total_E.w["i == label_post and label_post < 2"] = Jp
-    NMDA_set_total_E.w["i != label_post and label_post < 2"] = Jm
+   NMDA_set_total_E.connect()
+   NMDA_set_total_E.w = 1
+   NMDA_set_total_E.w["i == label_post and label_post < 2"] = Jp
+   NMDA_set_total_E.w["i != label_post and label_post < 2"] = Jm
 
-    # Recurrent excitatory -> inhibitory connections mediated by NMDA receptors
-    NMDA_set_total_I = Synapses(NMDA_sum_group, popI,
+   # Recurrent excitatory -> inhibitory connections mediated by NMDA receptors
+   NMDA_set_total_I = Synapses(NMDA_sum_group, popI,
                                 '''s_NMDA_tot_post = s_pre : 1 (summed)''', name='NMDA_set_total_I')
-    NMDA_set_total_I.connect()
+   NMDA_set_total_I.connect()
 
-    # Recurrent inhibitory -> excitatory connections mediated by GABA receptors
-    C_IE = Synapses(popI, popE, on_pre='s_GABA += gIE', delay=0.5 * ms, method='euler', name='C_IE')
-    C_IE.connect()
+   # Recurrent inhibitory -> excitatory connections mediated by GABA receptors
+   C_IE = Synapses(popI, popE, on_pre='s_GABA += gIE', delay=0.5 * ms, method='euler', name='C_IE')
+   C_IE.connect()
 
-    # Recurrent inhibitory -> inhibitory connections mediated by GABA receptors
-    C_II = Synapses(popI, popI, on_pre='s_GABA += gII', delay=0.5 * ms, method='euler', name='C_II')
-    C_II.connect()
+   # Recurrent inhibitory -> inhibitory connections mediated by GABA receptors
+   C_II = Synapses(popI, popI, on_pre='s_GABA += gII', delay=0.5 * ms, method='euler', name='C_II')
+   C_II.connect()
 
-    # External inputs (fixed background firing rates)
-    extinputE = PoissonInput(popE, 's_AMPA_ext', N_ext, rate_ext_E, gextE)
-    extinputI = PoissonInput(popI, 's_AMPA_ext', N_ext, rate_ext_I, gextI)
+   # External inputs (fixed background firing rates)
+   extinputE = PoissonInput(popE, 's_AMPA_ext', N_ext, rate_ext_E, gextE)
+   extinputI = PoissonInput(popI, 's_AMPA_ext', N_ext, rate_ext_I, gextI)
 
-    # Stimulus input (updated every 250ms)
+   # Stimulus input (updated every 250ms)
 
-    stim_array1 = TimedArray(mu1*Hz, dt=stim_interval)
-    stim_array2 = TimedArray(mu2*Hz, dt=stim_interval)
+   stim_array1 = TimedArray(mu1*Hz, dt=stim_interval)
+   stim_array2 = TimedArray(mu2*Hz, dt=stim_interval)
 
-    stiminputE1 = PoissonGroup(subN, rates='int(t > stim_on and t < stim_off) * stim_array1(t-1000*ms)', name='stiminputE1')
-    stiminputE2 = PoissonGroup(subN, rates='int(t > stim_on and t < stim_off) * stim_array2(t-1000*ms)', name='stiminputE2')
+   stiminputE1 = PoissonGroup(subN, rates='int(t > stim_on and t < stim_off) * stim_array1(t-1000*ms)', name='stiminputE1')
+   stiminputE2 = PoissonGroup(subN, rates='int(t > stim_on and t < stim_off) * stim_array2(t-1000*ms)', name='stiminputE2')
 
-    C_stimE1 = Synapses(stiminputE1, popE1, on_pre='s_AMPA_ext += gextE', name='C_stimE1')
-    C_stimE1.connect(j='i')
-    C_stimE2 = Synapses(stiminputE2, popE2, on_pre='s_AMPA_ext += gextE', name='C_stimE2')
-    C_stimE2.connect(j='i')
+   C_stimE1 = Synapses(stiminputE1, popE1, on_pre='s_AMPA_ext += gextE', name='C_stimE1')
+   C_stimE1.connect(j='i')
+   C_stimE2 = Synapses(stiminputE2, popE2, on_pre='s_AMPA_ext += gextE', name='C_stimE2')
+   C_stimE2.connect(j='i')
 
-    # -----------------------------------------------------------------------------------------------
-    # Run the simulation
-    # -----------------------------------------------------------------------------------------------
+   #-----------------------------------------------------------------------------------------------
+   # Run the simulation
+   # -----------------------------------------------------------------------------------------------
 
-    # Set initial conditions
-    popE.s_NMDA_tot = tau_NMDA_decay * 10 * Hz * 0.2
-    popI.s_NMDA_tot = tau_NMDA_decay * 10 * Hz * 0.2
-    popE.V = Vt - 2 * mV
-    popI.V = Vt - 2 * mV
+   # Set initial conditions
+   popE.s_NMDA_tot = tau_NMDA_decay * 10 * Hz * 0.2
+   popI.s_NMDA_tot = tau_NMDA_decay * 10 * Hz * 0.2
+   popE.V = Vt - 2 * mV
+   popI.V = Vt - 2 * mV
 
-    # Record spikes of excitatory neurons in the decision encoding populations
-    SME1 = SpikeMonitor(popE1, record=True)
-    SME2 = SpikeMonitor(popE2, record=True)
+   # Record spikes of excitatory neurons in the decision encoding populations
+   SME1 = SpikeMonitor(popE1, record=True)
+   SME2 = SpikeMonitor(popE2, record=True)
 
 
-    # Record population activity
-    R1 = PopulationRateMonitor(popE1)
-    R2 = PopulationRateMonitor(popE2)
+   # Record population activity
+   R1 = PopulationRateMonitor(popE1)
+   R2 = PopulationRateMonitor(popE2)
 
    # Record input
-    E1 = StateMonitor(stiminputE1, 'rates', record=0, dt=1*ms)
-    E2 = StateMonitor(stiminputE2, 'rates', record=0, dt=1*ms)
+   E1 = StateMonitor(stiminputE1, 'rates', record=0, dt=1*ms)
+   E2 = StateMonitor(stiminputE2, 'rates', record=0, dt=1*ms)
 
-    # Run the simulation
-    run(runtime, report=None, profile=False)
+   # Run the simulation
+   run(runtime, report=None, profile=False)
 
-    return SME1, SME2, R1, R2, E1, E2
+   return SME1, SME2, R1, R2, E1, E2
