@@ -174,3 +174,31 @@ def run_one_point_gNE(gNI, gNE, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms):
     )
 
     return float(gNI), float(gNE), float(IappI), f0, P0, lfp
+
+def run_one_point_gNI_gEI(gNI, gEI, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms):
+    res = network(
+        dt_ms=dt_ms,
+        T_ms=T_ms,
+        rng_seed=rng_seed,
+        gNI_mS_cm2=float(gNI),        # NMDA onto I-cells (x-axis in Fig 4)
+        gEI_mS_cm2=float(gEI),        # AMPA onto I-cells (y-axis in Fig 4)  <-- FIX HERE
+        Iapp_I_uAcm2=float(IappI),    # usually 0 for Fig 4
+        alpha_n_per_ms=alpha_n_per_ms
+    )
+
+    lfp = res["lfp"]
+    dt  = res["params"]["dt_ms"]
+
+    f0, P0 = gamma_metrics_from_lfp(
+        lfp, dt,
+        f_lo=20.0, f_hi=80.0,
+        half_width_hz=3.0,
+        bin_s=1.0,
+        window="hann",
+        detrend="mean",
+        summary="mean",
+        psd_normalize=True,
+        conv_mode="nearest"
+    )
+
+    return float(gNI), float(gEI), float(IappI), float(f0), float(P0), lfp
