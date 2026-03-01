@@ -90,7 +90,15 @@ def network(
     gII_mS_cm2=0.10,
     Iapp_E_uAcm2=4.0,
     Iapp_I_uAcm2=0.0,
-    alpha_n_per_ms=0.5,   # Eq. 9 parameter a_n (not given numerically in main text)
+    alpha_n_per_ms=0.5,
+    normalize=False,
+    
+    # ---  periodic drive parameters ---
+    drive_freq_hz=0.0,        # 0 = tonic mode; >0 = periodic mode
+    drive_Ae_uAcm2=70.0,      # amplitude to E-cells (paper: Ae=70)
+    drive_Ai_uAcm2=15.0,      # amplitude to I-cells (paper: Ai=15)
+    drive_tau_ms=10.0,        # filter time constant (paper: τ=10ms)
+    drive_pulse_ms=1.0,       # square pulse duration (paper: 1ms)
 ):
     start_scope()
     np.random.seed(rng_seed)
@@ -108,39 +116,64 @@ def network(
     IappE_loc = Iapp_E_uAcm2 * UA_PER_CM2_TO_SI
     IappI_loc = Iapp_I_uAcm2 * UA_PER_CM2_TO_SI
 
-    alpha_n = alpha_n_per_ms / ms
+    alpha_n   = alpha_n_per_ms / ms
+
+    # --- Periodic drive setup ---
+    periodic_mode = (drive_freq_hz > 0.0)
+    drive_Ae_si   = drive_Ae_uAcm2 * UA_PER_CM2_TO_SI
+    drive_Ai_si   = drive_Ai_uAcm2 * UA_PER_CM2_TO_SI
+    drive_tau_si  = drive_tau_ms * ms
 
     ns = dict(
-        # conductances / drives
         gNI_loc=gNI_loc, gEI_loc=gEI_loc, gNE_loc=gNE_loc,
         gEE_loc=gEE_loc, gIE_loc=gIE_loc, gII_loc=gII_loc,
         IappE_loc=IappE_loc, IappI_loc=IappI_loc,
-        # constants
         EL=EL, VT_E=VT_E, VT_I=VT_I, VR=VR, V_peak=V_peak,
         Vex=Vex, Vin=Vin, V_K=V_K, Mg=Mg,
         C_E=C_E, C_I=C_I, gL_E=gL_E, gL_I=gL_I,
         a_adapt=a_adapt, d_adapt=d_adapt,
         sigma_E=sigma_E, sigma_I=sigma_I,
         tau_n=tau_n, tau_e=tau_e, tau_ei=tau_ei, tau_i=tau_i,
-        alpha_n=alpha_n
+        alpha_n=alpha_n,
+        drive_Ae_si=drive_Ae_si, drive_Ai_si=drive_Ai_si,
+        drive_tau_si=drive_tau_si,
     )
+
+    # --- Shared drive group (single "neuron" holding z_drive) ---
+    if periodic_mode:
+        # Build the square-pulse TimedArray: 1 at pulse onset, 0 otherwise
+        dt_s         = dt_ms * 1e-3
+        period_s     = 1.0 / drive_freq_hz
+        T_s          = T_ms * 1e-3
+        n_total      = int(round(T_s / dt_s))
+        pulse_bins   = max(1, int(round(drive_pulse_ms * 1e-3 / dt_s)))
+        period_bins  = max(pulse_bins + 1, int(round(period_s / dt_s)))
+
+        P_arr = np.zeros(n_total + period_bins)   # extra padding
+        for onset in range(0, n_total, period_bins):
+            P_arr[onset: onset + pulse_bins] = 1.0
+
+        P_ta = TimedArray(P_arr, dt=dt_ms * ms)   # accessible as P_ta(t) in equations
+        ns["P_ta"] = P_ta
+
+        drive_eqs = """
+        dz_drive/dt = (-z_drive + P_ta(t)) / drive_tau_si : 1
+        """
+        DG = NeuronGroup(1, drive_eqs, method="euler", namespace=ns, name="DG")
+        DG.z_drive = 0.0
+    # -----------------------------------------------------------------
 
     eqs_E = """
     I_intrinsic = gL_E * (v - EL) * (v - VT_E) / (VT_E - EL) : amp/meter**2
-
-    B = 1.0 / (1.0 + (Mg * exp(-0.062 * (v/mV)) / 3.57)) : 1
-
-    I_AMPA = gEE_loc * se_EE * (v - Vex) : amp/meter**2
-    I_NMDA = gNE_loc * sn_EE * B * (v - Vex) : amp/meter**2
-    I_GABA = gIE_loc * si_IE * (v - Vin) : amp/meter**2
-    I_syn  = I_AMPA + I_NMDA + I_GABA : amp/meter**2
-
-    I_adapt = z * (v - V_K) : amp/meter**2
-
-    dv/dt = (IappE_loc + I_intrinsic - I_adapt - I_syn + sigma_E*xi) / C_E : volt
-
+    B           = 1.0 / (1.0 + (Mg * exp(-0.062 * (v/mV)) / 3.57)) : 1
+    I_AMPA      = gEE_loc * se_EE * (v - Vex) : amp/meter**2
+    I_NMDA      = gNE_loc * sn_EE * B * (v - Vex) : amp/meter**2
+    I_GABA      = gIE_loc * si_IE * (v - Vin) : amp/meter**2
+    I_syn       = I_AMPA + I_NMDA + I_GABA : amp/meter**2
+    I_adapt     = z * (v - V_K) : amp/meter**2
+    I_drive     : amp/meter**2   # updated each timestep via network_operation
+    dv/dt = (IappE_loc + I_drive + I_intrinsic - I_adapt - I_syn + sigma_E*xi) / C_E : volt
     dz/dt = -a_adapt * z : siemens/meter**2
-
     se_EE : 1
     sn_EE : 1
     si_IE : 1
@@ -148,16 +181,13 @@ def network(
 
     eqs_I = """
     I_intrinsic = gL_I * (v - EL) * (v - VT_I) / (VT_I - EL) : amp/meter**2
-
-    B = 1.0 / (1.0 + (Mg * exp(-0.062 * (v/mV)) / 3.57)) : 1
-
-    I_AMPA = gEI_loc * se_EI * (v - Vex) : amp/meter**2
-    I_NMDA = gNI_loc * sn_EI * B * (v - Vex) : amp/meter**2
-    I_GABA = gII_loc * si_II * (v - Vin) : amp/meter**2
-    I_syn  = I_AMPA + I_NMDA + I_GABA : amp/meter**2
-
-    dv/dt = (IappI_loc + I_intrinsic - I_syn + sigma_I*xi) / C_I : volt
-
+    B           = 1.0 / (1.0 + (Mg * exp(-0.062 * (v/mV)) / 3.57)) : 1
+    I_AMPA      = gEI_loc * se_EI * (v - Vex) : amp/meter**2
+    I_NMDA      = gNI_loc * sn_EI * B * (v - Vex) : amp/meter**2
+    I_GABA      = gII_loc * si_II * (v - Vin) : amp/meter**2
+    I_syn       = I_AMPA + I_NMDA + I_GABA : amp/meter**2
+    I_drive     : amp/meter**2   # updated each timestep via network_operation
+    dv/dt = (IappI_loc + I_drive + I_intrinsic - I_syn + sigma_I*xi) / C_I : volt
     se_EI : 1
     sn_EI : 1
     si_II : 1
@@ -166,7 +196,6 @@ def network(
     E = NeuronGroup(N_E, eqs_E, threshold="v >= V_peak",
                     reset="v = VR; z += d_adapt",
                     method="euler", namespace=ns, name="E")
-
     I = NeuronGroup(N_I, eqs_I, threshold="v >= V_peak",
                     reset="v = VR",
                     method="euler", namespace=ns, name="I")
@@ -174,95 +203,94 @@ def network(
     E.v = EL + 1*mV * randn(N_E)
     I.v = EL + 1*mV * randn(N_I)
     E.z = 0 * siemens/meter**2
+    E.I_drive = 0 * amp/meter**2
+    I.I_drive = 0 * amp/meter**2
 
-    # --- Synapses ---
-
-
-    S_EE = Synapses(
-        E, E,
-        model="""
+    # --- Synapses (unchanged) ---
+    S_EE = Synapses(E, E, model="""
         dse/dt = -se/tau_e : 1 (clock-driven)
         dsn/dt = alpha_n*se*(1-sn) - sn/tau_n : 1 (clock-driven)
         se_EE_post = se : 1 (summed)
         sn_EE_post = sn : 1 (summed)
-        """,
-        on_pre="se += 1.0",
-        namespace=ns,
-        name="S_EE"
-    )
+        """, on_pre="se += 1.0", namespace=ns, name="S_EE")
     S_EE.connect(condition="i != j", p=P_EE)
     S_EE.delay = 0.5*ms
 
-    S_EI = Synapses(
-        E, I,
-        model="""
+    S_EI = Synapses(E, I, model="""
         dse/dt = -se/tau_ei : 1 (clock-driven)
         dsn/dt = alpha_n*se*(1-sn) - sn/tau_n : 1 (clock-driven)
         se_EI_post = se : 1 (summed)
         sn_EI_post = sn : 1 (summed)
-        """,
-        on_pre="se += 1.0",
-        namespace=ns,
-        name="S_EI"
-    )
+        """, on_pre="se += 1.0", namespace=ns, name="S_EI")
     S_EI.connect(p=P_EI)
     S_EI.delay = 0.5*ms
 
-    S_IE = Synapses(
-        I, E,
-        model="""
+    S_IE = Synapses(I, E, model="""
         dsi/dt = -si/tau_i : 1 (clock-driven)
         si_IE_post = si : 1 (summed)
-        """,
-        on_pre="si += 1.0",
-        namespace=ns,
-        name="S_IE"
-    )
+        """, on_pre="si += 1.0", namespace=ns, name="S_IE")
     S_IE.connect(p=P_IE)
     S_IE.delay = 0.5*ms
 
-    S_II = Synapses(
-        I, I,
-        model="""
+    S_II = Synapses(I, I, model="""
         dsi/dt = -si/tau_i : 1 (clock-driven)
         si_II_post = si : 1 (summed)
-        """,
-        on_pre="si += 1.0",
-        namespace=ns,
-        name="S_II"
-    )
+        """, on_pre="si += 1.0", namespace=ns, name="S_II")
     S_II.connect(condition="i != j", p=P_II)
     S_II.delay = 0.5*ms
 
     # --- Monitors ---
     spE = SpikeMonitor(E)
     spI = SpikeMonitor(I)
-        # --- LFP recording without storing all voltages ---
     lfp_list = []
     t_list   = []
 
-    @network_operation(dt=defaultclock.dt)
-    def record_lfp():
-        lfp_list.append(float(np.mean(E.v / mV)))
-        t_list.append(float(defaultclock.t / second))
+    if normalize:
+        prev_spike_count = [0]
+
+        @network_operation(dt=defaultclock.dt)
+        def record_lfp():
+            # Inject periodic drive into all neurons
+            if periodic_mode:
+                z_val = float(DG.z_drive[0])
+                E.I_drive = z_val * drive_Ae_si
+                I.I_drive = z_val * drive_Ai_si
+
+            current_count = int(spE.num_spikes)
+            new_spikes = current_count - prev_spike_count[0]
+            prev_spike_count[0] = current_count
+            rate = new_spikes / (N_E * defaultclock.dt / second)
+            lfp_list.append(float(rate))
+            t_list.append(float(defaultclock.t / second))
+
+    else:
+        @network_operation(dt=defaultclock.dt)
+        def record_lfp():
+            if periodic_mode:
+                z_val = float(DG.z_drive[0])
+                E.I_drive = z_val * drive_Ae_si
+                I.I_drive = z_val * drive_Ai_si
+
+            lfp_list.append(float(np.mean(E.v / mV)))
+            t_list.append(float(defaultclock.t / second))
 
     run(T_ms * ms)
 
     lfp   = np.asarray(lfp_list)
     t_lfp = np.asarray(t_list)
 
-    rate_E = (spE.num_spikes / N_E) / ((T_ms*ms)/second)
-    rate_I = (spI.num_spikes / N_I) / ((T_ms*ms)/second)
+    rate_E = (spE.num_spikes / N_E) / ((T_ms * ms) / second)
+    rate_I = (spI.num_spikes / N_I) / ((T_ms * ms) / second)
 
     return dict(
-        lfp=lfp,
-        t_lfp=t_lfp,
+        lfp=lfp, t_lfp=t_lfp,
         spE_t=np.asarray(spE.t/second), spE_i=np.asarray(spE.i),
         spI_t=np.asarray(spI.t/second), spI_i=np.asarray(spI.i),
         rate_E=float(rate_E), rate_I=float(rate_I),
         params=dict(alpha_n_per_ms=float(alpha_n_per_ms),
                     gNI_mS_cm2=float(gNI_mS_cm2),
-                    dt_ms=float(dt_ms), T_ms=float(T_ms))
+                    dt_ms=float(dt_ms), T_ms=float(T_ms),
+                    drive_freq_hz=float(drive_freq_hz))
     )
 
 

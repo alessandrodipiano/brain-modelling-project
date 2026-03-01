@@ -106,7 +106,7 @@ def gamma_metrics_from_lfp(
 # ----------------------------
 # Parallel grid evaluation
 # ----------------------------
-def run_one_point(gNI, gNE, gEI, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms, return_spikes=False):
+def run_one_point(gNI, gNE, gEI, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms, return_spikes=False, normalize=False):
     """
     One simulation + gamma metrics.
     
@@ -119,7 +119,8 @@ def run_one_point(gNI, gNE, gEI, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms, r
         gNE_mS_cm2=float(gNE), # NMDA onto excitatory neurons
         gEI_mS_cm2=float(gEI),  # AMPA onto I-cells
         Iapp_I_uAcm2=float(IappI),
-        alpha_n_per_ms=alpha_n_per_ms
+        alpha_n_per_ms=alpha_n_per_ms,
+        normalize=normalize
     )
 
     lfp = res["lfp"]
@@ -135,7 +136,7 @@ def run_one_point(gNI, gNE, gEI, IappI, dt_ms, T_ms, rng_seed, alpha_n_per_ms, r
         window="hann",
         detrend="mean",
         summary="mean",
-        psd_normalize=True,
+        psd_normalize=False,
         conv_mode="nearest"
     )
 
