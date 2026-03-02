@@ -10,7 +10,7 @@ Network Architecture:
 -Connections are probabilistic — E→E at 10%, I→E at 50%, E→I at 40%, I→I at 60%.
 
 Neuron Model:
--Both populations use a quadratic integrate-and-fire (QIF) variant (Izhikevich-style)
+-Both populations use a quadratic integrate-and-fire (QIF) variant 
 
 spike-triggered adaptation current of E cells:
 -z decays exponentially between spikes and jumps up by d at each spike. 
@@ -43,7 +43,7 @@ MS_PER_CM2_TO_SI = 10.0 * siemens / meter**2
 UF_PER_CM2_TO_SI = 1e-2 * farad / meter**2
 
 N_E, N_I = 200, 50
-P_EE, P_EI, P_IE, P_II = 0.10, 0.40, 0.50, 0.60
+P_EE, P_EI, P_IE, P_II = 0.10, 0.40, 0.50, 0.60 
 
 EL   = -65.0 * mV
 VT_E = -45.0 * mV
@@ -165,7 +165,7 @@ def network(
 
     eqs_E = """
     I_intrinsic = gL_E * (v - EL) * (v - VT_E) / (VT_E - EL) : amp/meter**2
-    B           = 1.0 / (1.0 + (Mg * exp(-0.062 * (v/mV)) / 3.57)) : 1
+    B = 1.0 / (1.0 + Mg * exp(-0.062 * (v/mV) / 3.57)) : 1
     I_AMPA      = gEE_loc * se_EE * (v - Vex) : amp/meter**2
     I_NMDA      = gNE_loc * sn_EE * B * (v - Vex) : amp/meter**2
     I_GABA      = gIE_loc * si_IE * (v - Vin) : amp/meter**2
@@ -193,10 +193,10 @@ def network(
     si_II : 1
     """
 
-    E = NeuronGroup(N_E, eqs_E, threshold="v >= V_peak",
+    E = NeuronGroup(N_E, eqs_E, threshold="v >= VT_E",
                     reset="v = VR; z += d_adapt",
                     method="euler", namespace=ns, name="E")
-    I = NeuronGroup(N_I, eqs_I, threshold="v >= V_peak",
+    I = NeuronGroup(N_I, eqs_I, threshold="v >= VT_I",
                     reset="v = VR",
                     method="euler", namespace=ns, name="I")
 
